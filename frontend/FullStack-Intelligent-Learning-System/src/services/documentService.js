@@ -1,52 +1,46 @@
-import axiosInstance from "../utils/axiosInstance";
-import { API_PATHS } from "../utils/apiPaths";
+import axiosInstance from '../utils/axiosInstance';
+import { API_PATHS } from '../utils/apiPaths';
 
-const getDocuments = async () => {
-    try {
-        const response = await axiosInstance.get(API_PATHS.DOCUMENTS.DOCUMENTS.GET_ALL);
-        return response.data;
-    }
-    catch (error) {
-        throw error.response ? error.response.data : error;
-    }   
+/**
+ * Service for handling all Document-related API calls
+ */
+export const getDocuments = async () => {
+    const response = await axiosInstance.get(API_PATHS.DOCUMENT.GET_DOCUMENTS);
+    return response.data;
 };
 
-const uploadDocument = async (formData) => {
-    try {
-        const response = await axiosInstance.post(API_PATHS.DOCUMENTS.UPLOAD, formData, {
-            headers: {
-                'Content-Type': 'multipart/form-data'
-            }
-        });
-        return response.data;
-    }
-    catch (error) {        throw error.response ? error.response.data : error;
-    }   
+export const getDocumentById = async (id) => {
+    const response = await axiosInstance.get(API_PATHS.DOCUMENT.GET_DOCUMENT_BY_ID(id));
+    return response.data;
 };
 
-const deleteDocument = async (id) => {
-    try {
-        const response = await axiosInstance.delete(API_PATHS.DOCUMENTS.DOCUMENTS.DELETE(id));
-        return response.data;
-    }
-    catch (error) {        throw error.response ? error.response.data : error;
-    }   
+export const uploadDocument = async (formData) => {
+    const response = await axiosInstance.post(API_PATHS.DOCUMENT.UPLOAD, formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+        timeout: 60000, 
+    });
+    return response.data;
 };
 
-const getDocumentById = async (id) => {
-    try {
-        const response = await axiosInstance.get(API_PATHS.DOCUMENTS.DOCUMENTS.GET_BY_ID(id));
-        return response.data;
-    }
-    catch (error) {        throw error.response ? error.response.data : error;
-    }   
+export const updateDocument = async (id, data) => {
+    const response = await axiosInstance.put(API_PATHS.DOCUMENT.UPDATE_DOCUMENT(id), data);
+    return response.data;
 };
 
+export const deleteDocument = async (id) => {
+    const response = await axiosInstance.delete(API_PATHS.DOCUMENT.DELETE_DOCUMENT(id));
+    return response.data;
+};
+
+// Bundle them into a default export to satisfy: import documentService from '...'
 const documentService = {
     getDocuments,
+    getDocumentById,
     uploadDocument,
-    deleteDocument,
-    getDocumentById
+    updateDocument,
+    deleteDocument
 };
 
 export default documentService;

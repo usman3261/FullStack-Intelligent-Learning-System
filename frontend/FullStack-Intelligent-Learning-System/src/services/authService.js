@@ -3,7 +3,9 @@ import { API_PATHS } from '../utils/apiPaths';
 
 const login = async (email, password) => {
     try {
-        const response = await axiosInstance.post(API_PATHS.LOGIN, {
+        // Ensure this matches the structure in your apiPaths.js 
+        // Likely API_PATHS.AUTH.LOGIN
+        const response = await axiosInstance.post(API_PATHS.AUTH.LOGIN, {
             email,
             password
         });
@@ -23,7 +25,8 @@ const register = async (username, email, password) => {
         });
         return response.data;
     }
-    catch (error) {        throw error.response ? error.response.data : error;
+    catch (error) {        
+        throw error.response ? error.response.data : error;
     }   
 };
 
@@ -49,7 +52,11 @@ const updateProfile = async (userData) => {
 
 const changePassword = async (currentPassword, newPassword) => {
     try {
-        const response = await axiosInstance.post(API_PATHS.AUTH.CHANGE_PASSWORD);
+        // FIX: You must pass the data object as the second argument
+        const response = await axiosInstance.post(API_PATHS.AUTH.CHANGE_PASSWORD, {
+            currentPassword,
+            newPassword
+        });
         return response.data;
     }
     catch (error) {
