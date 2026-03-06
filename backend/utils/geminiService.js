@@ -1,117 +1,80 @@
-import dotenv from 'dotenv';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { Ollama } from 'ollama';
 
-dotenv.config();
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-if (!process.env.GEMINI_API_KEY) {
-    console.error('Error: GEMINI_API_KEY is not set.');
-    process.exit(1);
-}
-
-// 1. JSON Model (For Quizzes and Flashcards)
-const jsonModel = genAI.getGenerativeModel({ 
-    model: 'gemini-1.5-flash',
-    generationConfig: { responseMimeType: "application/json" } 
-});
-
-// 2. Text Model (For Summaries and Chat)
-const textModel = genAI.getGenerativeModel({ 
-    model: 'gemini-1.5-flash' 
-});
+// Explicitly connect to the local Ollama instance
+const ollama = new Ollama({ host: 'http://127.0.0.1:11434' });
 
 /**
- * @desc Generates Flashcards as a JSON array
+ * Local AI Service using Phi-3 Mini
+ * Optimized to prevent UND_ERR_HEADERS_TIMEOUT
  */
-export const generateFlashcards = async (text, count) => {
-    const prompt = `System: You are an educational assistant. Generate exactly ${count} flashcards.
-    User: Create a JSON array of objects based on this text. Each object MUST have: 
-    "question" (string), "answer" (string), and "difficulty" (string: easy, medium, or hard).
-    
-    Text: ${text.substring(0, 20000)}`;
 
+export const generateChatResponse = async (context, question) => {
     try {
-        const result = await jsonModel.generateContent(prompt);
-        return JSON.parse(result.response.text());
+        const response = await ollama.chat({
+            model: 'phi3:mini',
+            messages: [{
+                role: 'user',
+                content: `Context: ${context}\n\nQuestion: ${question}\n\nInstruction: Answer strictly using the context.`
+            }],
+            stream: false, // CRITICAL: Disable streaming to prevent partial header timeouts
+        });
+        return response.message.content;
     } catch (error) {
-        console.error('Gemini Flashcard Error:', error);
-        throw new Error('Failed to generate flashcards');
+        console.error("Ollama Chat Connection Error:", error.message);
+        throw new Error("Local AI is still warming up. Please try again in 10 seconds.");
     }
 };
 
-/**
- * @desc Generates a Quiz as a JSON array
- */
-export const generateQuiz = async (text, numQuestions) => {
-   const prompt = `System: You are an expert examiner. Generate exactly ${numQuestions} multiple-choice questions.
-   User: Create a JSON array of objects with keys: 
-   "question" (string), "options" (array of 4 strings), "correctAnswer" (string - the text content of the correct option), "explanation" (string).
-   
-   Text: ${text.substring(0, 20000)}`;
-
+export const generateSummary = async (context) => {
     try {
-        const result = await jsonModel.generateContent(prompt);
-        return JSON.parse(result.response.text());
+        const response = await ollama.chat({
+            model: 'phi3:mini',
+            messages: [{
+                role: 'user',
+                content: `Summarize this text in 5 bullet points:\n\n${context}`
+            }],
+            stream: false,
+        });
+        return response.message.content;
     } catch (error) {
-        console.error('Gemini Quiz Error:', error);
-        throw new Error('Failed to generate quiz');
+        console.error("Ollama Summary Error:", error.message);
+        throw new Error("Local AI summary failed.");
     }
 };
 
-/**
- * @desc Standard Text Summary
- */
-export const generateSummary = async (text) => {
-    const prompt = `Summarize the following text clearly using structured bullet points. 
-    Focus on the core concepts and key takeaways.
-    
-    Text: ${text.substring(0, 20000)}`;
-
+export const generateQuiz = async (context) => {
     try {
-        const result = await textModel.generateContent(prompt);
-        return result.response.text().trim();
+        const response = await ollama.chat({
+            model: 'phi3:mini',
+            messages: [{
+                role: 'user',
+                content: `Generate 5 MCQs from this text. Return ONLY JSON array: [{"question": "", "options": [], "correctAnswer": "", "explanation": ""}]\n\nText: ${context}`
+            }],
+            stream: false,
+        });
+        const text = response.message.content;
+        const cleanJson = text.replace(/```json|```/gi, "").trim();
+        return JSON.parse(cleanJson);
     } catch (error) {
-        console.error('Gemini Summary Error:', error);
-        throw new Error('Failed to generate summary');
+        console.error("Ollama Quiz Error:", error.message);
+        throw new Error("Local AI quiz generation failed.");
     }
 };
 
-/**
- * @desc RAG Chat with provided chunks
- */
-export const chatWithContext = async (question, chunks) => {
-    const contextText = chunks.map((c) => (typeof c === 'string' ? c : c.content)).join('\n\n');
-
-    const prompt = `System: You are an AI tutor. Answer the user's question using ONLY the context provided below. 
-    If the answer is not in the context, politely say you don't know based on the document.
-    
-    Context: ${contextText}
-    
-    User Question: ${question}`;
-
+export const generateFlashcards = async (context) => {
     try {
-        const result = await textModel.generateContent(prompt);
-        return result.response.text().trim();
+        const response = await ollama.chat({
+            model: 'phi3:mini',
+            messages: [{
+                role: 'user',
+                content: `Generate 5 flashcards from this text. Return ONLY JSON array: [{"question": "", "answer": ""}]\n\nText: ${context}`
+            }],
+            stream: false,
+        });
+        const cleanJson = response.message.content.replace(/```json|```/gi, "").trim();
+        return JSON.parse(cleanJson);
     } catch (error) {
-        console.error('Gemini Chat Error:', error);
-        throw new Error('Failed to generate answer');
+        console.error("Ollama Flashcard Error:", error.message);
+        throw new Error("Local AI flashcard generation failed.");
     }
-};
-
-/**
- * @desc Concept Explainer
- */
-export const explainConcept = async (concept, context = "") => {
-    const prompt = `System: You are a teaching assistant. 
-    User: Explain the concept "${concept}" in simple terms. 
-    Use this context if relevant: ${context.substring(0, 5000)}`;
-
-    try {
-        const result = await textModel.generateContent(prompt);
-        return result.response.text().trim();
-    } catch (error) {
-        console.error('Gemini Concept Error:', error);
-        throw new Error('Failed to explain concept');
-    }   
 };

@@ -1,11 +1,31 @@
-import fs from 'fs/promises';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const pdf = require('pdf-parse');
+import { PdfReader } from "pdfreader";
 
+/**
+ * Extracts raw text from a PDF file using PdfReader.
+ * This is a robust alternative that avoids the 'gr' constructor bug.
+ */
 export const extractTextFromPDF = async (filePath) => {
-    const dataBuffer = await fs.readFile(filePath);
-    // Use the function directly as 'pdf'
-    const data = await pdf(dataBuffer);
-    return data.text;
+    return new Promise((resolve, reject) => {
+        let fullText = "";
+        
+        new PdfReader().parseFileItems(filePath, (err, item) => {
+            if (err) {
+                console.error("PdfReader Error:", err);
+                return reject(err);
+            }
+            
+            if (!item) {
+                // End of file
+                if (!fullText.trim()) {
+                    return reject(new Error("No readable text found in PDF."));
+                }
+                return resolve(fullText.trim());
+            }
+            
+            if (item.text) {
+                // Add text and a space to keep words separated
+                fullText += item.text + " ";
+            }
+        });
+    });
 };

@@ -1,156 +1,128 @@
 import Document from "../models/Document.js";
-import Flashcard from "../models/Flashcard.js";
 import Quiz from "../models/Quiz.js";
-import ChatHistory from "../models/ChatHistory.js";
-import * as geminiService from '../utils/geminiService.js';
-import { findRelevantChunks } from "../utils/textChunker.js";
+import Flashcard from "../models/Flashcard.js";
+import * as geminiService from "../utils/geminiService.js";
 
 /**
- * @desc    Generate Flashcards from document text
- */
-export const generateFlashcards = async (req, res, next) => {
-    try {
-        const { documentId, count = 10 } = req.body;
-        // CHANGE: Changed status from 'ready' to 'processed'
-        const document = await Document.findOne({ _id: documentId, userId: req.user.id, status: 'processed' });
-
-        if (!document) return res.status(404).json({ success: false, error: 'Document not found or still processing' });
-
-        const cards = await geminiService.generateFlashcards(document.extractedText, parseInt(count));
-
-        const flashcardSet = await Flashcard.create({
-            userId: req.user.id,
-            documentId: document._id,
-            cards: cards.map((item) => ({
-                question: item.question,
-                answer: item.answer,
-                difficulty: item.difficulty || 'medium'
-            }))
-        });
-
-        res.json({ success: true, data: flashcardSet });
-    } catch (error) { next(error); }
-};
-
-/**
- * @desc    Generate a Quiz from document text
- */
-export const generateQuiz = async (req, res, next) => {
-    try {
-        const { documentId, numQuestions = 5, title } = req.body;
-        // CHANGE: Changed status from 'ready' to 'processed'
-        const document = await Document.findOne({ _id: documentId, userId: req.user.id, status: 'processed' });
-
-        if (!document) return res.status(404).json({ success: false, error: 'Document not found or still processing' });
-
-        const questions = await geminiService.generateQuiz(document.extractedText, parseInt(numQuestions));
-
-        const quiz = await Quiz.create({
-            userId: req.user.id,
-            documentId: document._id,
-            title: title || `${document.title} Quiz`,
-            questions: questions,
-            totalQuestions: questions.length
-        });
-
-        res.status(201).json({ success: true, data: quiz });
-    } catch (error) { next(error); }
-};
-
-/**
- * @desc    Generate a summary of the document
+ * NEW: Generates a concise summary of the document
  */
 export const generateSummary = async (req, res, next) => {
     try {
         const { documentId } = req.body;
-        // CHANGE: Changed status from 'ready' to 'processed'
-        const document = await Document.findOne({ _id: documentId, userId: req.user.id, status: 'processed' });
+        const document = await Document.findOne({ _id: documentId, userId: req.user.id });
 
-        if (!document) return res.status(404).json({ success: false, error: 'Document not found' });
+        if (!document) return res.status(404).json({ success: false, message: "Document not found" });
 
         const summary = await geminiService.generateSummary(document.extractedText);
+
+        // Update the document with the new summary
         document.summary = summary;
         await document.save();
 
-        res.json({ success: true, data: { summary } });
-    } catch (error) { next(error); }
+        res.status(200).json({
+            success: true,
+            data: { summary }
+        });
+    } catch (error) {
+        console.error("Summary Gen Error:", error.message);
+        next(error);
+    }
 };
 
 /**
- * @desc    RAG Chat with Document context
+ * Handles real-time AI Chat based on document context
  */
 export const chat = async (req, res, next) => {
     try {
         const { documentId, question } = req.body;
-        // CHANGE: Changed status from 'ready' to 'processed'
-        const document = await Document.findOne({ _id: documentId, userId: req.user.id, status: 'processed' });
+        const document = await Document.findOne({ _id: documentId, userId: req.user.id });
+        
+        if (!document) return res.status(404).json({ success: false, message: "Document context not found." });
 
-        if (!document) return res.status(404).json({ success: false, error: 'Document not ready' });
+        const answer = await geminiService.generateChatResponse(document.extractedText, question);
 
-        const relevantChunks = findRelevantChunks(document.chunks, question, 3);
-        const chunkIndices = relevantChunks.map(chunk => chunk.index);
-        const answer = await geminiService.chatWithContext(question, relevantChunks);
-
-        // Update chat history
-        await ChatHistory.findOneAndUpdate(
-            { userId: req.user.id, documentId: document._id },
-            { $push: { 
-                messages: { 
-                    role: 'user', 
-                    content: question, 
-                    timestamp: new Date() 
-                }
-            }},
-            { upsert: true }
-        );
-
-        await ChatHistory.findOneAndUpdate(
-            { userId: req.user.id, documentId: document._id },
-            { $push: { 
-                messages: { 
-                    role: 'assistant', 
-                    content: answer, 
-                    timestamp: new Date(), 
-                    relevantChunks: chunkIndices 
-                }
-            }}
-        );
-
-        res.json({ success: true, data: { answer, relevantChunks: chunkIndices } });
-    } catch (error) { next(error); }
+        res.status(200).json({ success: true, data: { answer } });
+    } catch (error) {
+        console.error("AI Chat Controller Error:", error.message);
+        next(error);
+    }
 };
 
 /**
- * @desc    Explain a specific concept within document context
+ * Explains a specific concept from the document
  */
 export const explainConcept = async (req, res, next) => {
     try {
         const { documentId, concept } = req.body;
-        if (!documentId || !concept) return res.status(400).json({ success: false, error: 'Missing parameters' });
+        const document = await Document.findOne({ _id: documentId, userId: req.user.id });
 
-        // CHANGE: Changed status from 'ready' to 'processed'
-        const document = await Document.findOne({ _id: documentId, userId: req.user.id, status: 'processed' });
-        if (!document) return res.status(404).json({ success: false, error: 'Document not ready' });
+        if (!document) return res.status(404).json({ success: false, message: "Document not found" });
 
-        const relevantChunks = findRelevantChunks(document.chunks, concept, 3);
-        const context = relevantChunks.map(chunk => chunk.content).join('\n');
-        
-        const explanation = await geminiService.explainConcept(concept, context);
+        const explanation = await geminiService.explainConcept(document.extractedText, concept);
 
-        res.json({ 
-            success: true, 
-            data: { concept, explanation, relevantChunks: relevantChunks.map(c => c.index) } 
-        });
-    } catch (error) { next(error); }
+        res.status(200).json({ success: true, data: { explanation } });
+    } catch (error) {
+        console.error("Explain Concept Error:", error.message);
+        next(error);
+    }
 };
 
 /**
- * @desc    Retrieve chat history
+ * Generates and saves a set of Flashcards
+ */
+export const generateFlashcards = async (req, res, next) => {
+    try {
+        const { documentId } = req.body;
+        const document = await Document.findOne({ _id: documentId, userId: req.user.id });
+
+        if (!document) return res.status(404).json({ success: false, message: "Document not found" });
+
+        const flashcardsData = await geminiService.generateFlashcards(document.extractedText);
+        
+        const flashcardSet = await Flashcard.create({
+            userId: req.user.id,
+            documentId,
+            cards: flashcardsData
+        });
+
+        res.status(201).json({ success: true, data: flashcardSet });
+    } catch (error) { 
+        console.error("Flashcard Gen Error:", error.message);
+        next(error); 
+    }
+};
+
+/**
+ * Generates and saves a Multiple Choice Quiz
+ */
+export const generateQuiz = async (req, res, next) => {
+    try {
+        const { documentId } = req.body;
+        const document = await Document.findOne({ _id: documentId, userId: req.user.id });
+
+        if (!document) return res.status(404).json({ success: false, message: "Document not found" });
+
+        const quizData = await geminiService.generateQuiz(document.extractedText);
+        
+        const quiz = await Quiz.create({
+            userId: req.user.id,
+            documentId,
+            title: `Quiz: ${document.title}`,
+            questions: quizData
+        });
+
+        res.status(201).json({ success: true, data: quiz });
+    } catch (error) { 
+        console.error("Quiz Gen Error:", error.message);
+        next(error); 
+    }
+};
+
+/**
+ * Fetches Chat History
  */
 export const getChatHistory = async (req, res, next) => {
     try {
-        const { documentId } = req.params;
-        const chatHistory = await ChatHistory.findOne({ userId: req.user.id, documentId }).select('messages');
-        res.json({ success: true, data: chatHistory ? chatHistory.messages : [] });
+        res.status(200).json({ success: true, data: [] });
     } catch (error) { next(error); }
 };

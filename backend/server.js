@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();    
 
 import express from 'express';
-import mongoose from 'mongoose'; // Added this import
+import mongoose from 'mongoose';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -24,7 +24,6 @@ const app = express();
 connectDB();
 
 /** * TEMPORARY FIX: Drop the ghost 'name' index 
- * This ensures the change from 'name' to 'username' doesn't cause 400 errors
  */
 const dropOldIndex = async () => {
     mongoose.connection.once('open', async () => {
@@ -33,12 +32,10 @@ const dropOldIndex = async () => {
             const collections = await adminDb.listCollections({ name: 'users' }).toArray();
             
             if (collections.length > 0) {
-                // Drop the index that was enforcing 'name' uniqueness
                 await adminDb.collection('users').dropIndex('name_1');
                 console.log('Successfully dropped old "name" index');
             }
         } catch (err) {
-            // Index doesn't exist? No problem, we move on.
             console.log('Old index "name_1" not found or already dropped.');
         }
     });
@@ -76,11 +73,20 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => {
-    console.log(` Server is running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+
+// FIXED: Capture the server instance to set timeouts
+const server = app.listen(PORT, () => {
+    console.log(`🚀 Server is running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
 });
 
+/**
+ * ⚡ CRITICAL FOR OLLAMA:
+ * Since local AI processing can take time (summarizing 20 pages), 
+ * we set the timeout to 5 minutes so the connection doesn't drop.
+ */
+server.timeout = 300000; 
+
 process.on('unhandledRejection', (err) => {
-    console.error(` Error: ${err.message} `);
+    console.error(`Error: ${err.message}`);
     process.exit(1);
 });

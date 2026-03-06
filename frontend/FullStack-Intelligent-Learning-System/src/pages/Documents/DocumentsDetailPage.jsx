@@ -18,23 +18,46 @@ const DocumentsDetailPage = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
 
-    // Sync helper: Check if document is fully ready for AI tools
+    // Sync helpers for UI state
     const isReady = doc?.status === 'processed';
     const hasFailed = doc?.status === 'error';
+    const isProcessing = doc?.status === 'processing';
 
     useEffect(() => {
-        const fetchDetails = async () => {
+        let pollInterval;
+
+        const fetchDetails = async (isFirstLoad = false) => {
             try {
                 const res = await documentService.getDocumentById(id);
                 setDoc(res.data);
+                
+                // Stop polling if the document reaches a final state
+                if (res.data.status === 'processed' || res.data.status === 'error') {
+                    clearInterval(pollInterval);
+                }
             } catch (err) {
-                toast.error("Could not find document");
-                navigate('/documents');
+                // Only show error and redirect on the first attempt
+                if (isFirstLoad) {
+                    toast.error("Could not find document");
+                    navigate('/documents');
+                }
             } finally {
-                setLoading(false);
+                if (isFirstLoad) setLoading(false);
             }
         };
-        fetchDetails();
+
+        // Initial fetch
+        fetchDetails(true);
+
+        // Polling: Check every 3 seconds if the document is still processing
+        pollInterval = setInterval(() => {
+            fetchDetails(false);
+        }, 3000);
+
+        // Cleanup: Stop polling when the user leaves the page
+        return () => {
+            if (pollInterval) clearInterval(pollInterval);
+        };
     }, [id, navigate]);
 
     const handleAIGenerate = async (type) => {
@@ -55,12 +78,12 @@ const DocumentsDetailPage = () => {
             if (res.data.success) {
                 toast.success(`${type} generated successfully!`, { id: loadingToast });
                 
-                // Refresh data to show updated card/quiz counts
+                // Refresh data to update counts (flashcardCount / quizCount)
                 const updated = await documentService.getDocumentById(id);
                 setDoc(updated.data);
             }
         } catch (err) {
-            toast.error(`Failed to generate ${type}. Try a shorter document.`, { id: loadingToast });
+            toast.error(`Failed to generate ${type}. The file might be too complex.`, { id: loadingToast });
         } finally {
             setIsGenerating(false);
         }
@@ -102,7 +125,7 @@ const DocumentsDetailPage = () => {
                                             }`}>
                                                 {doc.status}
                                             </span>
-                                            {!isReady && !hasFailed && <Loader2 size={12} className="animate-spin text-amber-600" />}
+                                            {isProcessing && <Loader2 size={12} className="animate-spin text-amber-600" />}
                                         </div>
                                     </div>
                                 </div>
@@ -110,13 +133,13 @@ const DocumentsDetailPage = () => {
                                 <h3 className="font-bold text-slate-800 mb-3 flex items-center gap-2">
                                     <Sparkles className="text-amber-500" size={18} /> AI Executive Summary
                                 </h3>
-                                <div className="prose prose-slate max-w-none text-slate-600 leading-relaxed bg-slate-50 p-6 rounded-xl border border-slate-100">
+                                <div className="prose prose-slate max-w-none text-slate-600 leading-relaxed bg-slate-50 p-6 rounded-xl border border-slate-100 min-h-[100px]">
                                     {hasFailed ? (
                                         <div className="flex items-center gap-2 text-rose-500 font-medium">
-                                            <AlertCircle size={18} /> PDF text extraction failed. Please try re-uploading.
+                                            <AlertCircle size={18} /> PDF text extraction failed. This file might be an image or protected.
                                         </div>
                                     ) : (
-                                        doc.summary || "Summary will appear here once analysis is complete."
+                                        doc.summary || (isProcessing ? "AI is analyzing the document structure..." : "Summary will appear here.")
                                     )}
                                 </div>
                             </div>
@@ -168,13 +191,21 @@ const DocumentsDetailPage = () => {
                             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                                 <h4 className="font-bold text-slate-800 mb-4 text-sm uppercase tracking-wide">Info</h4>
                                 <ul className="space-y-4 text-sm">
-                                    <li className="flex justify-between">
-                                        <span className="text-slate-500">File</span>
-                                        <span className="font-medium text-slate-900 truncate ml-4 max-w-[120px]">{doc.fileName}</span>
+                                    <li className="flex justify-between items-center">
+                                        <span className="text-slate-500">File Name</span>
+                                        <span className="font-medium text-slate-900 truncate ml-4 max-w-[140px] text-right" title={doc.fileName}>
+                                            {doc.fileName}
+                                        </span>
                                     </li>
-                                    <li className="flex justify-between">
+                                    <li className="flex justify-between items-center">
                                         <span className="text-slate-500">Analysis</span>
-                                        {isReady ? <CheckCircle2 size={16} className="text-emerald-500" /> : <Loader2 size={16} className="animate-spin text-amber-500" />}
+                                        {isReady ? (
+                                            <CheckCircle2 size={16} className="text-emerald-500" />
+                                        ) : hasFailed ? (
+                                            <AlertCircle size={16} className="text-rose-500" />
+                                        ) : (
+                                            <Loader2 size={16} className="animate-spin text-amber-500" />
+                                        )}
                                     </li>
                                 </ul>
                             </div>

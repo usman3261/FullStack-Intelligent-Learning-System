@@ -1,10 +1,5 @@
 import express from 'express';
-import { 
-    uploadDocument, 
-    getDocuments, 
-    getDocumentById, // Changed from getDocument to match your controller
-    deleteDocument 
-} from '../controllers/documentController.js';
+import { uploadDocument, getDocuments, getDocumentById, deleteDocument } from '../controllers/documentController.js';
 import protect from '../middleware/auth.js';
 import multer from 'multer';
 
